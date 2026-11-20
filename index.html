@@ -5,31 +5,102 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Входящие заявки</title>
   <style>
-    body { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; font: 1rem/1.5 system-ui, sans-serif; }
-    textarea { box-sizing: border-box; display: block; width: 100%; margin: .5rem 0; padding: .5rem; font: inherit; }
-    button { padding: .4rem .8rem; font: inherit; }
-    pre { white-space: pre-wrap; }
+    body { box-sizing: border-box; max-width: 44rem; margin: 3rem auto; padding: 0 1rem;
+           font: 1rem/1.5 system-ui, sans-serif; color: #20242c; background: #fafafa; }
+    h1 { margin-bottom: .3rem; }
+    .hint { color: #535c67; margin: .2rem 0 1.5rem; }
+    form, #feedback { background: white; border: 1px solid #e3e5e9; border-radius: .7rem;
+                     padding: 1.25rem; margin-bottom: 1rem; }
+    label { display: block; font-weight: 600; margin-bottom: .5rem; }
+    textarea { box-sizing: border-box; display: block; width: 100%; padding: .7rem;
+               border: 1px solid #aeb7c1; border-radius: .35rem; resize: vertical;
+               font: inherit; margin-bottom: .9rem; }
+    textarea:focus-visible, button:focus-visible { outline: 3px solid #8ab5f7; }
+    button { background: #245ecb; color: white; border: 0; border-radius: .35rem;
+             padding: .65rem 1rem; cursor: pointer; font: inherit; }
+    button:disabled { opacity: .6; cursor: wait; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 1rem; margin: .5rem 0;
+          background: #f3f6fa; border-radius: .35rem; font: inherit; }
+    #notice { margin-top: 0; }
+    small { color: #535c67; }
   </style>
 </head>
 <body>
-  <h1>Входящие заявки</h1>
-  <form>
-    <label for="message">Текст заявки</label>
-    <textarea id="message" rows="4"></textarea>
-    <button type="submit">Разобрать заявку</button>
-  </form>
-  <pre id="result" aria-live="polite"></pre>
+  <main>
+    <h1>Входящие заявки</h1>
+    <p class="hint">Получите тему и черновик. Перед отправкой клиенту проверьте ответ самостоятельно.</p>
+    <form>
+      <label for="message">Текст заявки</label>
+      <textarea id="message" rows="5" required></textarea>
+      <button type="submit">Разобрать заявку</button>
+    </form>
+
+    <section id="feedback" aria-live="polite" hidden>
+      <p id="notice"></p>
+      <div id="success" hidden>
+        <p>Тема: <strong id="topic"></strong></p>
+        <p><strong>Черновик ответа</strong></p>
+        <pre id="draft"></pre>
+        <small>Этот черновик не отправлен клиенту автоматически.</small>
+      </div>
+    </section>
+  </main>
+
   <script type="module">
     const form = document.querySelector("form");
-    const result = document.querySelector("#result");
+    const message = document.querySelector("#message");
+    const feedback = document.querySelector("#feedback");
+    const notice = document.querySelector("#notice");
+    const success = document.querySelector("#success");
+    const topic = document.querySelector("#topic");
+    const draft = document.querySelector("#draft");
+    const button = document.querySelector("button[type=submit]");
+    const topics = { delivery: "Доставка", pricing: "Стоимость", other: "Другое" };
+
+    function clearDraft() {
+      topic.textContent = "";
+      draft.textContent = "";
+      success.hidden = true;
+    }
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const reply = await fetch("/api/triage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: document.querySelector("#message").value }),
-      });
-      result.textContent = JSON.stringify(await reply.json(), null, 2);
+      clearDraft();
+      feedback.hidden = false;
+
+      const text = message.value.trim();
+      if (!text) {
+        notice.textContent = "Введите текст заявки.";
+        return;
+      }
+
+      notice.textContent = "Разбираем заявку…";
+      button.disabled = true;
+      try {
+        const response = await fetch("/api/triage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        const result = await response.json();
+
+        if (response.ok && result.status === "ready" &&
+            Object.hasOwn(topics, result.topic) &&
+            typeof result.draft === "string" && result.draft.trim()) {
+          topic.textContent = topics[result.topic];
+          draft.textContent = result.draft;
+          success.hidden = false;
+          notice.textContent = "Черновик готов. Проверьте его перед отправкой клиенту.";
+        } else if (result.status === "invalid_input") {
+          notice.textContent = "Введите корректный текст заявки.";
+        } else {
+          notice.textContent = "Нужен ручной разбор: модель не подготовила надёжный ответ.";
+        }
+      } catch {
+        notice.textContent = "Не удалось обработать заявку. Проверьте её вручную.";
+      } finally {
+        button.disabled = false;
+      }
     });
   </script>
 </body>
